@@ -14,9 +14,9 @@ env:
   TF_VERSION: "1.11.4"
 
 # every `run:` step starts inside the terraform/ folder
-defaults:
-  run:
-    working-directory: terraform
+# defaults:
+#   run:
+#     working-directory: terraform
 
 jobs:
   terraform:
@@ -27,6 +27,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check the repo layout
+        run: |
+          for p in main.tf ansible.tf terraform.tfvars ansible/playbook.yml frontend/package.json backend/pom.xml; do
+            [ -e "$p" ] || { echo "::error::missing $p in the repo root"; exit 1; }
+          done
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -50,6 +55,7 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
         run: |
+          [ -n "$SSH_KEY" ] || { echo "::error::secret EC2_SSH_PRIVATE_KEY is empty"; exit 1; }
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/devop-aws-ssh.pem
           chmod 400 ~/.ssh/devop-aws-ssh.pem
@@ -58,11 +64,16 @@ jobs:
       # TF_STATE_BUCKET. Without remote state every run starts from scratch.
       - name: Terraform Init
         run: |
-          terraform init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="key=ts-academy/dev.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="use_lockfile=true"
+          if [ -f backend.tf ]; then
+            terraform init -input=false \
+              -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+              -backend-config="key=ts-academy/dev.tfstate" \
+              -backend-config="region=${{ env.AWS_REGION }}" \
+              -backend-config="use_lockfile=true"
+          else
+            echo "::warning::no backend.tf - Terraform state will NOT be saved between runs"
+            terraform init -input=false
+          fi
 
       - name: Terraform Validate
         run: terraform validate
