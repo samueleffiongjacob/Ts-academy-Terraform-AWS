@@ -1,7 +1,7 @@
 terraform {
   backend "s3" {
-    bucket       = "ts-academy-state-file"
+    bucket       = "ts-academy-sam-state-file"
     key          = "tf-academy.tfstate"
-    region       = "us-east-1"
+    region       = "eu-north-1"
   }
 }
