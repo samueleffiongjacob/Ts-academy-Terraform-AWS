@@ -108,5 +108,4 @@ Pick a few of these to go further:
    - Why the PR workflow doesn't run `apply`
    - Which stretch goals you implemented, and why
 
-
-   # update e
+# update

@@ -97,14 +97,57 @@
         dest: /usr/local/bin/k3s-install.sh
         mode: "0755"
 
+    - name: Check that the backend can reach the k3s API on the frontend (port 6443)
+      ansible.builtin.wait_for:
+        host: "{{ frontend_private_ip }}"
+        port: 6443
+        timeout: 120
+
     - name: Join the cluster
-      ansible.builtin.command: /usr/local/bin/k3s-install.sh
-      args:
-        creates: /usr/local/bin/k3s
-      environment:
-        K3S_URL: "https://{{ frontend_private_ip }}:6443"
-        K3S_TOKEN: "{{ k3s_token }}"
-        INSTALL_K3S_EXEC: "agent --node-label role=backend"
+      block:
+        - name: Install the k3s agent (files only, do not start yet)
+          ansible.builtin.command: /usr/local/bin/k3s-install.sh
+          args:
+            creates: /etc/systemd/system/k3s-agent.service
+          environment:
+            K3S_URL: "https://{{ frontend_private_ip }}:6443"
+            K3S_TOKEN: "{{ k3s_token }}"
+            INSTALL_K3S_EXEC: "agent --node-label role=backend"
+            INSTALL_K3S_SKIP_START: "true"
+
+        # The service waits until it has joined the cluster, so start it without blocking
+        - name: Start the agent
+          ansible.builtin.command: systemctl enable --now --no-block k3s-agent
+          changed_when: false
+
+        - name: Wait until the agent is active (max 6 minutes)
+          ansible.builtin.command: systemctl is-active k3s-agent
+          register: agent_state
+          until: agent_state.stdout == "active"
+          retries: 36
+          delay: 10
+          failed_when: false
+          changed_when: false
+
+        - name: Stop here if the agent did not join
+          ansible.builtin.assert:
+            that: agent_state.stdout == "active"
+            fail_msg: "k3s-agent is '{{ agent_state.stdout }}', not active"
+
+      rescue:
+        - name: Collect the agent logs
+          ansible.builtin.command: journalctl -u k3s-agent --no-pager -n 60
+          register: agent_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Show the agent logs
+          ansible.builtin.debug:
+            var: agent_logs.stdout_lines
+
+        - name: Fail with a clear message
+          ansible.builtin.fail:
+            msg: "The k3s agent on the backend could not join the cluster. See the logs above."
 
 # 4. Build the Docker images on the node that will run them ------------------------
 - name: Build the frontend (Next.js) image

@@ -13,7 +13,10 @@ env:
   AWS_REGION: eu-north-1
   TF_VERSION: "1.11.4"
 
-# every `run:` step starts inside the terraform/ folder
+# Layout this workflow expects:
+#   terraform/   main.tf variables.tf outputs.tf ansible.tf backend.tf terraform.tfvars ...
+#   ansible/     frontend/     backend/
+# Every `run:` step starts inside terraform/.
 defaults:
   run:
     working-directory: terraform
@@ -22,6 +25,7 @@ jobs:
   terraform:
     name: Terraform
     runs-on: ubuntu-latest
+    timeout-minutes: 75
 
     steps:
       - name: Checkout
@@ -32,6 +36,7 @@ jobs:
           for p in main.tf ansible.tf terraform.tfvars ../ansible/playbook.yml ../frontend/package.json ../backend/pom.xml; do
             [ -e "$p" ] || { echo "::error::missing $p (paths are relative to terraform/)"; exit 1; }
           done
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -44,13 +49,12 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # terraform/ansible.tf runs ansible-playbook during apply
+      # ansible.tf runs ansible-playbook during apply
       - name: Install Ansible
         run: pipx install ansible-core
 
-      # Same key as on your laptop. Add it once in GitHub:
-      # Settings > Secrets and variables > Actions > New repository secret
-      #   name:  EC2_SSH_PRIVATE_KEY   value: full contents of devop-aws-ssh.pem
+      # Add once in GitHub: Settings > Secrets and variables > Actions > New repository secret
+      #   name: EC2_SSH_PRIVATE_KEY    value: full contents of devop-aws-ssh.pem
       - name: Write SSH key
         env:
           SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
@@ -60,8 +64,8 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/devop-aws-ssh.pem
           chmod 400 ~/.ssh/devop-aws-ssh.pem
 
-      # Needs terraform/backend.tf (rename backend.tf.example) and a repo VARIABLE
-      # TF_STATE_BUCKET. Without remote state every run starts from scratch.
+      # With backend.tf present, state is kept in S3. The bucket comes from backend.tf
+      # itself or from the repo variable TF_STATE_BUCKET.
       - name: Terraform Init
         env:
           TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}

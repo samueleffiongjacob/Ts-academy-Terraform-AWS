@@ -122,7 +122,7 @@ resource "terraform_data" "ansible_deploy" {
 
   provisioner "local-exec" {
     working_dir = local.ansible_dir
-    command     = "ansible-playbook playbook.yml -e @vars.generated.yml"
+    command     = "timeout 50m ansible-playbook playbook.yml -e @vars.generated.yml"
     environment = {
       ANSIBLE_CONFIG = "${local.ansible_dir}/ansible.cfg"
     }
